@@ -153,6 +153,7 @@ app.delete("/delete-student", async (req, res) => {
 
 
 // Start Server
-app.listen(port, () => {
-    console.log(`Server running on http://localhost:${port}`);
+app.listen(5000, '0.0.0.0', () => {
+    console.log("Server running on http://0.0.0.0:5000");
 });
+
