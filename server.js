@@ -151,6 +151,10 @@ app.delete("/delete-student", async (req, res) => {
     }
 });
 
+app.get("/", (req, res) => {
+    res.send("Hello! Your HTTPS setup is working 🚀");
+});
+
 
 // Start Server
 app.listen(5000, '0.0.0.0', () => {
