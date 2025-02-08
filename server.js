@@ -1,4 +1,6 @@
 require("dotenv").config();
+const fs = require("fs");
+const https = require("https");
 const express = require("express");
 const mysql = require("mysql2/promise");
 const cors = require("cors");
@@ -8,6 +10,9 @@ const rateLimit = require("express-rate-limit");
 
 const app = express();
 const port = process.env.PORT || 5000;
+
+// Trust proxy for rate limiting to work properly
+app.set("trust proxy", 1);
 
 app.use(cors());
 app.use(bodyParser.json());
@@ -19,6 +24,12 @@ const limiter = rateLimit({
     message: "Too many requests, please try again later."
 });
 app.use(limiter);
+
+// Load SSL Certificate and Key
+const options = {
+    key: fs.readFileSync("server.key"),
+    cert: fs.readFileSync("server.cert")
+};
 
 // Database Connection
 let db;
@@ -48,13 +59,13 @@ const transporter = nodemailer.createTransport({
     },
 });
 
-// Helper function for email validation
+// Email validation function
 const isValidEmail = (email) => {
     const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
     return emailRegex.test(email);
 };
 
-// Helper function to send emails with retry logic
+// Email sending function
 const sendEmail = async (email, subject, text) => {
     try {
         await transporter.sendMail({ from: process.env.EMAIL_USER, to: email, subject, text });
@@ -66,7 +77,7 @@ const sendEmail = async (email, subject, text) => {
     }
 };
 
-// Add a Student
+// Routes
 app.post("/add-student", async (req, res) => {
     const { name, email, request_type } = req.body;
     if (!name || !email || !request_type) return res.status(400).json({ error: "Name, email, and request type are required" });
@@ -88,7 +99,6 @@ app.post("/add-student", async (req, res) => {
     }
 });
 
-// Get All Students
 app.get("/students", async (req, res) => {
     try {
         const [results] = await db.execute("SELECT * FROM students");
@@ -99,65 +109,11 @@ app.get("/students", async (req, res) => {
     }
 });
 
-// Mark Request as Ready
-app.post("/mark-ready", async (req, res) => {
-    const { student_id } = req.body;
-    if (!student_id) return res.status(400).json({ error: "Student ID is required" });
-
-    try {
-        const [studentResult] = await db.execute("SELECT email, name, request_type FROM students WHERE id = ?", [student_id]);
-        if (studentResult.length === 0) return res.status(404).json({ error: "Student not found" });
-        
-        const { email, name, request_type } = studentResult[0];
-        await db.execute("UPDATE students SET request_ready = TRUE WHERE id = ?", [student_id]);
-
-        const subject = `Your ${request_type.replace("_", " ")} is Ready`;
-        const text = `Hello ${name},\n\nYour ${request_type.replace("_", " ")} is now ready for collection.`;
-        
-        const emailSent = await sendEmail(email, subject, text);
-        if (!emailSent) return res.status(500).json({ error: "Failed to send email." });
-
-        await db.execute("INSERT INTO notifications (student_id, email_sent, sent_at, request_type) VALUES (?, TRUE, NOW(), ?)", [student_id, request_type]);
-        res.json({ message: "Request marked as ready, email sent, and notification logged!" });
-    } catch (err) {
-        console.error("Database error:", err);
-        res.status(500).json({ error: "Server error" });
-    }
-});
-
-// Delete Student
-// Delete Student
-app.delete("/delete-student", async (req, res) => {
-    const { student_id } = req.body;
-    if (!student_id) return res.status(400).json({ error: "Student ID is required" });
-
-    try {
-        // Fetch the student details before deletion
-        const [studentResult] = await db.execute("SELECT * FROM students WHERE id = ?", [student_id]);
-        if (studentResult.length === 0) return res.status(404).json({ error: "Student not found" });
-
-        const student = studentResult[0]; // Store student details
-
-        // Proceed with deletion
-        const [deleteResult] = await db.execute("DELETE FROM students WHERE id = ?", [student_id]);
-
-        // Log deleted student details
-        console.log(`🗑️ Student Deleted: ID=${student.id}, Name=${student.name}, Email=${student.email}, Request Type=${student.request_type}`);
-
-        res.json({ message: "Student deleted successfully!" });
-    } catch (err) {
-        console.error("Database error:", err);
-        res.status(500).json({ error: "Server error while deleting student" });
-    }
-});
-
 app.get("/", (req, res) => {
     res.send("Hello! Your HTTPS setup is working 🚀");
 });
 
-
-// Start Server
-app.listen(5000, '0.0.0.0', () => {
-    console.log("Server running on https://0.0.0.0:5000");
+// Start Secure HTTPS Server
+https.createServer(options, app).listen(port, "0.0.0.0", () => {
+    console.log(`✅ Server running securely on https://0.0.0.0:${port}`);
 });
-
